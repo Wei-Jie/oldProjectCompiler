@@ -1,72 +1,79 @@
-# Infolight EEP (.NET Framework / VS2005) 可攜式編譯與自動修復套件
+# 00. 從 GitHub 下載到完成編譯：Step-by-Step 完整步驟總覽
 
-這是一套專為 **訊光科技 (Infolight) EEP (.NET Framework 2.0 / 3.5 / 4.0、Visual Studio 2005 / 2008)** 舊版系統量身打造的**免安裝可攜式編譯與自動修復工具**。
-
-當您在**沒有安裝 Visual Studio 2005 IDE 或 Windows SDK** 的公司電腦上，使用 **Claude Code** 修改了 EEP Client（WinForms `InfoForm`）或 EEP Server（`InfoDataModule` / `DataModule`）的 C# 程式碼卻無法重新編譯時，只需將 `dist\EEPCompiler_Portable` 資料夾拷貝過去即可立即解決！
+這份文件將所有步驟依序濃縮成 **5 個標準步驟（Step 1 ~ Step 5）**。您到了公司電腦後，**只需要照著這份文件從上往下做一次**，就能完成所有環境配置！
 
 ---
 
-## 核心功能與五大規則自動化
+## 📁 檔案順序導覽（照數字順序看／點選即可）
 
-1. **規則 1（雙核心編譯引擎：MSBuild + 內建免 SDK Direct CSC/ResX）**
-   - 自動搜尋本機的 `MSBuild.exe`（支援 VS2022 / VS2019 / VS2017 / .NET 4.0 / .NET 2.0）。
-   - **免 SDK 自動救援**：若公司電腦未安裝 Windows SDK（缺少 `ResGen.exe`、`LC.exe`、`AL.exe` 導致 MSBuild 報 `MSB3091` 錯誤），或需強制透過 `/nostdlib` 跨編譯出 **CLR v2.0 (`v2.0.50727`)** 組件以防止 `BadImageFormatException`，工具會**自動無縫切換至內建的 Direct CSC + 原生 ResX 引擎**完成編譯！
-2. **規則 2（自動修復 EEP 專屬 DLL `<HintPath>` 與解除版本強綁定）**
-   - 自動在工作區、上層目錄與 `EEPNetServer`、`EEPNetClient`、`Lib` 搜尋 `Srvtools.dll`、`InfoRemoteModule.dll`、`EFClientTools.dll`、`EFServerTools.dll`、`EFBase.dll`、`FLCore.dll` 等組件。
-   - 自動修正 `.csproj` 中失效的絕對路徑 `<HintPath>`，並自動補上 `<SpecificVersion>False</SpecificVersion>`（修改前自動備份 `.csproj.bak`）。
-3. **規則 3（自動繞過 `licenses.licx` 第三方元件授權檢查）**
-   - 自動將專案內非空白的 `Properties\licenses.licx` 備份並清空為 0 byte，同時將 `.csproj` 中的 `<EmbeddedResource Include="...licenses.licx">` 轉為 `<None>`，徹底根除 `LC.exe exited with code -1` 與 `MSB3091`。
-4. **規則 4（自動處理 `<OutputPath>` 與無效 `<PostBuildEvent>`）**
-   - 自動建立不存在的輸出目錄，並自動將指向不存在磁碟機（如舊伺服器 `Z:\`、`Y:\`）的 `<PostBuildEvent>` copy 指令加上 `rem` 註解，徹底解決 `MSB3073`。
-5. **規則 5（C# 語法版本降級預檢 + CP950 轉 UTF-8 + `.Designer.cs` 保護）**
-   - 自動將繁體中文 Windows 下編譯器的 Big5 (CP950) 輸出轉換為乾淨的 UTF-8，避免 Claude Code 讀到亂碼。
-   - 內建語法掃描器：自動攔截 Claude Code 常誤用的 C# 6.0 ~ 12.0 新語法（如 `$"字串插值"`、`?.`、`nameof()`、`using var`、`new()`、File-scoped namespace），並附上明確的 **C# 5.0 / VS2005 降級改寫範例**。
+### 1. 說明文件順序（專案根目錄）
+- **`00_從下載到編譯完整步驟總覽.md`** 👈 **（本文件，看這份即可完成全流程！）**
+- **`01_GitHub下載與更新教學.md`**：3 種從 GitHub 把專案抓到公司電腦的方法。
+- **`02_公司環境部署與Claude整合指南.md`**：與既有 `CLAUDE.md` 合併、乾淨電腦編譯與 DevExpress 授權詳解。
+- **`03_EEP五大編譯修復規則說明.md`**：AI 代理專用的底層技術規範。
+
+### 2. 隨身工具包操作順序（`dist\EEPCompiler_Portable\` 資料夾內）
+進到 `dist\EEPCompiler_Portable` 資料夾後，裡面的批次檔也已按執行順序編號：
+1. **`01_收集公司EEP與DevExpress組件.bat`**（第 1 步：把公司的訊光與 DevExpress DLL 收集進 `lib\`）
+2. **`02_安裝Claude規則到專案.bat`**（第 2 步：把編譯規則安全整合進公司專案的 `CLAUDE.md`）
+3. **`03_啟動GUI桌面編譯器.bat`**（第 3 步：手動開啟視窗介面編譯，或交由 Claude Code 自動呼叫 `eepc.exe`）
 
 ---
 
-## 如何帶到公司電腦使用？（三步驟快速上手）
+## 🚀 全流程 5 步驟實戰（到公司電腦照著做）
 
-### 步驟 1：拷貝可攜式資料夾
-將 [`dist\EEPCompiler_Portable`](file:///c:/AI/vs2005compiler/dist/EEPCompiler_Portable) 整個資料夾（或壓縮檔 `dist\EEPCompiler_Portable.zip`）複製到公司電腦的 EEP 專案目錄下：
-- `eepc.exe`：單一免安裝執行檔（**內含 GUI 桌面視窗介面與 CLI 命令列雙模式**，不需安裝 Python 或 SDK）。
-- `CLAUDE.md`：給 Claude Code 讀取的規則與自動編譯指令設定檔。
-- `eep_tool.py`：選用的 Python 腳本工具（含 `watch` 檔案變更自動監控編譯模式）。
+```mermaid
+flowchart LR
+    S1["Step 1<br/>從 GitHub 下載"] --> S2["Step 2<br/>放入公司專案目錄"]
+    S2 --> S3["Step 3<br/>雙擊 01_收集組件.bat"]
+    S3 --> S4["Step 4<br/>雙擊 02_安裝Claude規則.bat"]
+    S4 --> S5["Step 5<br/>Claude 自動編譯 或<br/>雙擊 03_啟動GUI.bat"]
+```
 
-### 步驟 2：選擇您的操作方式
+---
 
-#### 方式 A：使用圖形化桌面介面（GUI 手動點選）
-直接**滑鼠雙擊 `eepc.exe`**（或執行 `eepc.exe --gui`）：
-1. 將您的 `.sln`、`.csproj` 或專案資料夾直接**拖放（Drag & Drop）**進視窗，或點擊「選取專案檔...」。
-2. （選填）若 EEP 元件放在特殊位置，可在「訊光 EEP 根目錄」選擇您的 `EEP.NET` 安裝資料夾。
-3. 點擊綠色的 **「3. 一鍵修復並開始編譯 (Build)」** 按鈕。
-4. 若有編譯錯誤，可點擊 **「複製 Claude Code 除錯報告」** 直接貼給 Claude Code 修復！
+### 【Step 1】在公司電腦從 GitHub 下載本工具
+打開瀏覽器前往：**[https://github.com/Wei-Jie/oldProjectCompiler](https://github.com/Wei-Jie/oldProjectCompiler)**
+- **最快下載法（免裝 Git）**：點擊右上角綠色的 **`<> Code`** -> **`Download ZIP`**，下載後解壓縮。
+- **Git 指令下載法**：在終端機輸入 `git clone https://github.com/Wei-Jie/oldProjectCompiler.git`。
 
-#### 方式 B：讓 Claude Code 自動化編譯與除錯（CLI 閉環模式）
-1. 將 `CLAUDE.md` 複製到您公司 EEP 專案的根目錄。
-2. Claude Code 讀取 `CLAUDE.md` 後，每次改完 `.cs` 就會自動執行：
-   ```powershell
-   & ".\eepc.exe" build "<您的專案.csproj 或 方案.sln>" --auto-repair --claude
-   ```
-   若您的 `EEPNetServer` / `EEPNetClient` 位於特定目錄（例如 `C:\EEP.NET`），可加上 `--eep-root`：
-   ```powershell
-   & ".\eepc.exe" build "<您的專案.csproj>" --eep-root "C:\EEP.NET" --auto-repair --claude
-   ```
+---
 
-#### 方式 C：開啟 Python 自動監控編譯模式（Watch Mode）
-若公司電腦有安裝 Python（建議搭配 `uv`）：
+### 【Step 2】將 `EEPCompiler_Portable` 放進您的公司專案
+1. 打開剛剛解壓縮出來的 `dist` 資料夾。
+2. 把裡面的 **`EEPCompiler_Portable`** 整個資料夾，複製到您**公司舊系統專案的根目錄**下（例如 `D:\MyEEPProject\EEPCompiler_Portable\`）。
+
+---
+
+### 【Step 3】執行 `01_收集公司EEP與DevExpress組件.bat`（只需做一次）
+1. 進入 `EEPCompiler_Portable` 資料夾，雙擊執行 **`01_收集公司EEP與DevExpress組件.bat`**。
+2. 視窗會請您輸入（或用滑鼠拖曳）公司電腦上的 EEP 安裝目錄（例如 `C:\EEP.NET` 或 `C:\EEP2006`），也可以直接按 `Enter` 自動掃描 Windows GAC。
+3. 它會自動把 `Srvtools.dll`、`InfoRemoteModule.dll`、`EFClientTools.dll` 以及 `DevExpress*.dll`、`FarPoint*.dll` 全部收集進 `EEPCompiler_Portable\lib\` 資料夾。
+   > 💡 **好處**：收集完這一次之後，就算您把這個資料夾帶回**完全沒裝 EEP、也沒裝 VS2005 的乾淨電腦**，只要有 Source Code 都能直接獨立編譯！
+
+---
+
+### 【Step 4】執行 `02_安裝Claude規則到專案.bat`（整合 `CLAUDE.md`）
+1. 雙擊執行 **`02_安裝Claude規則到專案.bat`**，直接按 `Enter`（預設會指向您專案的上層根目錄）。
+2. 它會自動幫您完成：
+   - 建立 `.claude\rules\eep-compiler.md` 模組化規則。
+   - 若您原本已經有 `CLAUDE.md`，它會**100% 保留原本內容**，只在檔案最尾端安全補上 `eepc.exe` 的編譯規則！
+   - （或者您也可以打開 Claude Code，請它：*「讀取 `EEPCompiler_Portable/CLAUDE.md` 並與我現有的 `CLAUDE.md` 整併」*）。
+
+---
+
+### 【Step 5】開始編譯！（兩種模式任選）
+
+#### 模式 A：讓 Claude Code 改完程式自己「自動編譯＋自動除錯」（全自動閉環）
+完成 Step 4 後，您在專案目錄啟動 Claude Code 請它改程式時，它每改完 `.cs` 就會自己呼叫：
 ```powershell
-uv run python eep_tool.py watch "<您的專案.csproj 或 資料夾>" --eep-root "C:\EEP.NET"
+.\EEPCompiler_Portable\eepc.exe build "<您的專案.csproj 或 方案.sln>" --auto-repair --claude
 ```
-只要 Claude Code 或您儲存任何 `.cs` 檔案，工具就會在 0.8 秒內自動修復、重新編譯並產出最新診斷報告至 `EEP_BUILD_STATUS.md`！
+- `eepc.exe` 會自動幫它修好失效的 `<HintPath>`、清空 `licenses.licx`（並從舊版 DLL 無損移植 `.licenses` 授權資源防止跳試用窗）、擋掉錯誤的 `PostBuildEvent`，並檢查是否有誤用 C# 6~12 新語法。
+- 若有編譯錯誤，會輸出乾淨的 UTF-8 繁體中文錯誤行號與降級修改建議，讓 Claude Code 自動修到 `PASS (0 Error(s))` 為止！
 
----
-
-## `eepc.exe` 命令列參數一覽
-
-```text
-eepc.exe build <專案.sln|.csproj|資料夾> [--auto-repair] [--claude] [--eep-root <EEP目錄>] [--engine auto|msbuild|direct] [--target auto|v2.0|v4.0]
-eepc.exe repair <專案.sln|.csproj|資料夾> [--eep-root <EEP目錄>]
-eepc.exe check <專案.sln|.csproj|資料夾>
-eepc.exe env
-eepc.exe --gui
-```
+#### 模式 B：手動開啟桌面視窗介面一鍵編譯（GUI 模式）
+1. 雙擊執行 **`03_啟動GUI桌面編譯器.bat`**（或直接雙擊 **`eepc.exe`**）。
+2. 把您的 `.sln`、`.csproj` 或資料夾直接**用滑鼠拖放進視窗**。
+3. 點擊綠色的 **「3. 一鍵修復並開始編譯 (Build)」** 按鈕即可產出 `.dll`！
+   - 如果看到紅字錯誤，直接點擊旁邊的 **「複製 Claude Code 除錯報告」** 按鈕，貼給 Claude Code 就能立刻幫您修好！
