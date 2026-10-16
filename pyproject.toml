@@ -1,0 +1,10 @@
+[project]
+name = "vs2005-eep-compiler"
+version = "1.0.0"
+description = "Infolight EEP (.NET Framework / VS2005) 可攜式編譯與自動修復套件 (Python CLI & Watcher)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+eep-tool = "python_cli.eep_tool:main"

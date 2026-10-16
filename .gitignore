@@ -1,0 +1,15 @@
+# Python 虛擬環境與快取 (勿推上 GitHub)
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 編譯暫存與自動備份檔
+**/obj/
+*.bak
+
+# 保留 dist/EEPCompiler_Portable 內的執行檔與隨身套件，方便從 GitHub clone 下來直接使用
+!dist/EEPCompiler_Portable/**
+
+samples/EEPNetClient/Solution1/
+samples/EEPNetServer/Solution1/
