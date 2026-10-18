@@ -27,7 +27,7 @@ namespace EEPCompiler
 
             string command = args[0].ToLowerInvariant();
             if (command != "build" && command != "repair" && command != "check" && command != "env" &&
-                command != "to-utf8" && command != "to-big5")
+                command != "to-utf8" && command != "to-big5" && command != "index")
             {
                 // 若第一個參數直接是檔案或資料夾路徑，預設視為 build 指令
                 if (File.Exists(args[0]) || Directory.Exists(args[0]))
@@ -63,6 +63,18 @@ namespace EEPCompiler
             {
                 Console.WriteLine("[錯誤] 找不到指定的目標路徑: " + options.InputPath);
                 return 2;
+            }
+
+            if (command == "index")
+            {
+                string mapFile;
+                SystemIndexer.GenerateSystemMap(options.InputPath, out mapFile);
+                Console.WriteLine("======================================================================");
+                Console.WriteLine("✔ 全系統業務與程式碼導覽地圖已產生完成！");
+                Console.WriteLine("📄 索引檔位置: " + mapFile);
+                Console.WriteLine("👉 請讓 Claude Code 先讀取此檔案，即可秒速定位畫面對應的 Client/Server 專案與資料表！");
+                Console.WriteLine("======================================================================");
+                return 0;
             }
 
             if (command == "to-utf8" || command == "to-big5")
