@@ -172,11 +172,13 @@ namespace EEPCompiler
                 string content = ReadFileSmartEncoding(f);
                 if (string.IsNullOrEmpty(content)) continue;
 
-                if (content.Contains(": InfoForm") || content.Contains(": Srvtools.InfoForm") || content.Contains("CLIUtils."))
+                if (content.Contains(": InfoForm") || content.Contains(": Srvtools.InfoForm"))
                 {
                     entry.Role = "Client (前端畫面)";
                 }
-                else if (entry.Role == "Common" && (content.Contains(": DataModule") || content.Contains(": InfoDataModule") || content.Contains("UpdateComponent")))
+                else if (content.Contains(": DataModule") || content.Contains(": Srvtools.DataModule") ||
+                         content.Contains(": InfoDataModule") || content.Contains(": Srvtools.InfoDataModule") ||
+                         content.Contains("Srvtools.UpdateComponent"))
                 {
                     entry.Role = "Server (後端模組)";
                 }

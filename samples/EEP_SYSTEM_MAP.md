@@ -5,14 +5,14 @@
 
 - **掃描根目錄**: `c:\AI\vs2005compiler\samples`
 - **收錄專案總數**: 2 個專案
-- **產生時間**: 2026-10-18 22:56:10
+- **產生時間**: 2026-10-18 22:57:48
 
 ## 一、全系統作業快速對照總表 (Client <-> Server <-> 資料表)
 
 | 專案代號 | 角色 | 畫面標題 / 功能名稱 | 關聯 Server 模組 (`RemoteName` / `CallMethod`) | 讀寫資料表 (SQL Tables) | 專案相對路徑 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`CBankClient`** | Client (前端畫面) | 訊光 EEP 銀行訂單維護表單 (VS2005) | SOrderServer.cmdOrders<br/>SOrderServer.CheckOrderAmount() | `-` | `CBankClient` |
-| **`SOrderServer`** | Client (前端畫面) | - | - | `Orders` | `SOrderServer` |
+| **`SOrderServer`** | Server (後端模組) | - | - | `Orders` | `SOrderServer` |
 
 ---
 
@@ -23,7 +23,7 @@
 - **綁定資料來源 (`InfoDataSet.RemoteName`)**: `SOrderServer.cmdOrders`
 - **呼叫後端方法 (`CLIUtils.CallMethod`)**: `SOrderServer.CheckOrderAmount()`
 
-### 📦 `SOrderServer` (Client (前端畫面)) - 路徑: `SOrderServer`
+### 📦 `SOrderServer` (Server (後端模組)) - 路徑: `SOrderServer`
 - **提供之後端商業邏輯方法 (`Server Methods`)**: `CheckOrderAmount()`
 - **關聯資料庫表格 (`SQL Tables`)**: `Orders`
 
