@@ -436,8 +436,8 @@ namespace EEPCompiler
         {
             List<RepairRecord> records = new List<RepairRecord>();
 
-            // === 規則 6：統一原始碼檔案編碼為 UTF-8 with BOM (解決 Big5 與無 BOM UTF-8 導致的亂碼與 CS1010 雙引號被吃掉問題) ===
-            NormalizeSourceFileEncodings(project, records);
+            // === 規則 6：自動為無 BOM 的 UTF-8 檔案補上 BOM (解決 Claude Code 存檔後舊版編譯器誤判為 Big5 報 CS1010 錯誤，同時不亂動其他未修改的 Big5 檔案以免弄髒版控) ===
+            NormalizeSourceFileEncodings(project, records, false);
 
             // === 規則 3：繞過第三方元件授權檢查 (清空 licenses.licx 為 0 byte) ===
             foreach (string licPath in project.LicenseFiles)
@@ -745,11 +745,11 @@ namespace EEPCompiler
         }
 
         /// <summary>
-        /// 規則 6：自動偵測專案內 .cs 檔案的編碼 (Big5/CP950 或無 BOM 的 UTF-8)，統一轉為 UTF-8 with BOM
-        /// 1. 避免 Claude Code 以 UTF-8 讀寫 Big5 檔案時把中文字改壞成亂碼
-        /// 2. 避免舊版 MSBuild / csc.exe 將無 BOM 的 UTF-8 當成 Big5 讀取，導致吃掉結尾雙引號而報 CS1010 錯誤或視窗中文變亂碼
+        /// 規則 6：處理 .cs 原始碼檔案編碼
+        /// - 預設 (convertBig5=false)：只幫「已被 Claude Code 改為無 BOM UTF-8」的檔案補上 UTF-8 BOM，不亂動其他未修改的 Big5 檔案（保護 Git/SVN/VSS 版控紀錄，且舊版編譯器本來就能直接編譯未動過的 Big5）
+        /// - 顯式轉碼 (convertBig5=true)：當需要讓 Claude Code 編輯某個舊 Big5 檔案時，將 Big5 無損轉為 UTF-8 with BOM
         /// </summary>
-        private void NormalizeSourceFileEncodings(EepProjectInfo project, List<RepairRecord> records)
+        public void NormalizeSourceFileEncodings(EepProjectInfo project, List<RepairRecord> records, bool convertBig5)
         {
             if (project.CompileFiles == null) return;
             UTF8Encoding strictUtf8 = new UTF8Encoding(false, true);
@@ -805,9 +805,9 @@ namespace EEPCompiler
                             string.Format("檔案 '{0}' 原為無 BOM 之 UTF-8 (含中文字元)，已自動補上 UTF-8 BOM，防止舊版編譯器誤判為 Big5 報 CS1010 錯誤。", Path.GetFileName(csPath)),
                             true));
                     }
-                    else
+                    else if (convertBig5)
                     {
-                        // 3. 原檔案為舊版 Big5 (CP950) 編碼：先備份再無損轉為 UTF-8 with BOM，讓 Claude Code 與編譯器都能正常讀寫
+                        // 3. 顯式要求將舊版 Big5 (CP950) 轉為 UTF-8 with BOM 供 Claude Code 編輯
                         string bakPath = csPath + ".bak";
                         if (!File.Exists(bakPath))
                         {
@@ -818,7 +818,7 @@ namespace EEPCompiler
                         records.Add(new RepairRecord(
                             "規則 6 (Big5 轉 UTF-8 with BOM)",
                             csPath,
-                            string.Format("檔案 '{0}' 原為 Big5 (CP950) 編碼，已備份並無損轉換為 UTF-8 with BOM，確保 Claude Code 與編譯器雙向相容。", Path.GetFileName(csPath)),
+                            string.Format("檔案 '{0}' 原為 Big5 (CP950) 編碼，已備份並無損轉換為 UTF-8 with BOM 供 Claude Code 安全讀寫。", Path.GetFileName(csPath)),
                             true));
                     }
                 }
