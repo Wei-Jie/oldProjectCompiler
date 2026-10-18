@@ -26,7 +26,8 @@ namespace EEPCompiler
             }
 
             string command = args[0].ToLowerInvariant();
-            if (command != "build" && command != "repair" && command != "check" && command != "env")
+            if (command != "build" && command != "repair" && command != "check" && command != "env" &&
+                command != "to-utf8" && command != "to-big5")
             {
                 // 若第一個參數直接是檔案或資料夾路徑，預設視為 build 指令
                 if (File.Exists(args[0]) || Directory.Exists(args[0]))
@@ -53,7 +54,7 @@ namespace EEPCompiler
             CompilerOptions options = ParseOptions(args);
             if (string.IsNullOrEmpty(options.InputPath))
             {
-                Console.WriteLine("[錯誤] 請指定專案路徑 (.sln / .csproj / 資料夾)。");
+                Console.WriteLine("[錯誤] 請指定專案或檔案路徑 (.cs / .sln / .csproj / 資料夾)。");
                 PrintUsage();
                 return 2;
             }
@@ -62,6 +63,11 @@ namespace EEPCompiler
             {
                 Console.WriteLine("[錯誤] 找不到指定的目標路徑: " + options.InputPath);
                 return 2;
+            }
+
+            if (command == "to-utf8" || command == "to-big5")
+            {
+                return RunEncodingConvert(options.InputPath, command == "to-utf8");
             }
 
             BuildEngine engine = new BuildEngine();
@@ -84,6 +90,96 @@ namespace EEPCompiler
             {
                 return RunBuild(engine, projectPaths, options);
             }
+        }
+
+        /// <summary>
+        /// 雙向編碼轉換：支援單一 .cs 檔案或整個專案資料夾在 Big5 (CP950) 與 UTF-8 with BOM 之間無損互轉
+        /// </summary>
+        private static int RunEncodingConvert(string targetPath, bool toUtf8Bom)
+        {
+            List<string> csFiles = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                if (targetPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    csFiles.Add(Path.GetFullPath(targetPath));
+                }
+                else
+                {
+                    string dir = Path.GetDirectoryName(Path.GetFullPath(targetPath));
+                    csFiles.AddRange(Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories));
+                }
+            }
+            else if (Directory.Exists(targetPath))
+            {
+                csFiles.AddRange(Directory.GetFiles(Path.GetFullPath(targetPath), "*.cs", SearchOption.AllDirectories));
+            }
+
+            UTF8Encoding strictUtf8 = new UTF8Encoding(false, true);
+            UTF8Encoding utf8WithBom = new UTF8Encoding(true);
+            Encoding big5 = Encoding.GetEncoding(950);
+            int convertedCount = 0;
+
+            foreach (string file in csFiles)
+            {
+                if (file.IndexOf(@"\obj\", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                try
+                {
+                    byte[] raw = File.ReadAllBytes(file);
+                    if (raw.Length == 0) continue;
+
+                    bool hasBom = raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF;
+                    string content;
+                    bool isCurrentlyUtf8 = false;
+
+                    if (hasBom)
+                    {
+                        content = utf8WithBom.GetString(raw, 3, raw.Length - 3);
+                        isCurrentlyUtf8 = true;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            content = strictUtf8.GetString(raw);
+                            isCurrentlyUtf8 = true;
+                        }
+                        catch
+                        {
+                            content = big5.GetString(raw);
+                            isCurrentlyUtf8 = false;
+                        }
+                    }
+
+                    if (toUtf8Bom)
+                    {
+                        // 目標：轉為 UTF-8 with BOM (供 Claude Code 正常讀寫與編譯)
+                        if (!hasBom || !isCurrentlyUtf8)
+                        {
+                            File.WriteAllText(file, content, utf8WithBom);
+                            convertedCount++;
+                            Console.WriteLine(string.Format("[已轉為 UTF-8 with BOM] {0}", file));
+                        }
+                    }
+                    else
+                    {
+                        // 目標：轉回 Big5 (CP950)
+                        if (isCurrentlyUtf8 || hasBom)
+                        {
+                            File.WriteAllText(file, content, big5);
+                            convertedCount++;
+                            Console.WriteLine(string.Format("[已轉回 Big5 (CP950)] {0}", file));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(string.Format("[轉碼失敗] {0}: {1}", file, ex.Message));
+                }
+            }
+
+            Console.WriteLine(string.Format("編碼轉換完成，共轉換 {0} 個 .cs 檔案。", convertedCount));
+            return 0;
         }
 
         private static int RunEnvCheck()
