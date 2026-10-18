@@ -86,7 +86,10 @@ namespace EEPCompiler
             {
                 foreach (string projFile in csprojs)
                 {
-                    if (projFile.IndexOf(@"\obj\", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    if (projFile.IndexOf(@"\obj\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        projFile.IndexOf("EEPCompiler_Portable", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        projFile.IndexOf(@"\src\EEPCompiler\", StringComparison.OrdinalIgnoreCase) >= 0)
+                        continue;
                     entries.Add(ScanSingleProject(fullRoot, Path.GetDirectoryName(projFile), Path.GetFileNameWithoutExtension(projFile)));
                 }
             }
