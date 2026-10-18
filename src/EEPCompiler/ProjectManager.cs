@@ -436,6 +436,9 @@ namespace EEPCompiler
         {
             List<RepairRecord> records = new List<RepairRecord>();
 
+            // === 規則 6：統一原始碼檔案編碼為 UTF-8 with BOM (解決 Big5 與無 BOM UTF-8 導致的亂碼與 CS1010 雙引號被吃掉問題) ===
+            NormalizeSourceFileEncodings(project, records);
+
             // === 規則 3：繞過第三方元件授權檢查 (清空 licenses.licx 為 0 byte) ===
             foreach (string licPath in project.LicenseFiles)
             {
@@ -740,5 +743,88 @@ namespace EEPCompiler
             }
             catch { }
         }
+
+        /// <summary>
+        /// 規則 6：自動偵測專案內 .cs 檔案的編碼 (Big5/CP950 或無 BOM 的 UTF-8)，統一轉為 UTF-8 with BOM
+        /// 1. 避免 Claude Code 以 UTF-8 讀寫 Big5 檔案時把中文字改壞成亂碼
+        /// 2. 避免舊版 MSBuild / csc.exe 將無 BOM 的 UTF-8 當成 Big5 讀取，導致吃掉結尾雙引號而報 CS1010 錯誤或視窗中文變亂碼
+        /// </summary>
+        private void NormalizeSourceFileEncodings(EepProjectInfo project, List<RepairRecord> records)
+        {
+            if (project.CompileFiles == null) return;
+            UTF8Encoding strictUtf8 = new UTF8Encoding(false, true);
+            UTF8Encoding utf8WithBom = new UTF8Encoding(true);
+            Encoding big5 = Encoding.GetEncoding(950);
+
+            foreach (string csPath in project.CompileFiles)
+            {
+                if (!File.Exists(csPath)) continue;
+                try
+                {
+                    byte[] raw = File.ReadAllBytes(csPath);
+                    if (raw.Length == 0) continue;
+
+                    // 1. 若已經帶有 UTF-8 BOM (EF BB BF)，直接略過
+                    if (raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
+                    {
+                        continue;
+                    }
+
+                    // 檢查是否全為純 ASCII (0x00 ~ 0x7F)；若全為純英文數字則無須動它
+                    bool hasNonAscii = false;
+                    for (int i = 0; i < raw.Length; i++)
+                    {
+                        if (raw[i] > 0x7F)
+                        {
+                            hasNonAscii = true;
+                            break;
+                        }
+                    }
+                    if (!hasNonAscii) continue;
+
+                    // 2. 含有中文字元但沒有 BOM：先測試是否為合法的無 BOM UTF-8 (例如剛被 Claude Code 編輯存檔)
+                    string decodedText = null;
+                    bool isUtf8NoBom = false;
+                    try
+                    {
+                        decodedText = strictUtf8.GetString(raw);
+                        isUtf8NoBom = true;
+                    }
+                    catch
+                    {
+                        isUtf8NoBom = false;
+                    }
+
+                    if (isUtf8NoBom)
+                    {
+                        // 補上 UTF-8 BOM，防止舊版 csc.exe / MSBuild 將其誤判為 Big5 而吃掉雙引號 (CS1010)
+                        File.WriteAllText(csPath, decodedText, utf8WithBom);
+                        records.Add(new RepairRecord(
+                            "規則 6 (補上 UTF-8 BOM 防亂碼)",
+                            csPath,
+                            string.Format("檔案 '{0}' 原為無 BOM 之 UTF-8 (含中文字元)，已自動補上 UTF-8 BOM，防止舊版編譯器誤判為 Big5 報 CS1010 錯誤。", Path.GetFileName(csPath)),
+                            true));
+                    }
+                    else
+                    {
+                        // 3. 原檔案為舊版 Big5 (CP950) 編碼：先備份再無損轉為 UTF-8 with BOM，讓 Claude Code 與編譯器都能正常讀寫
+                        string bakPath = csPath + ".bak";
+                        if (!File.Exists(bakPath))
+                        {
+                            File.Copy(csPath, bakPath, false);
+                        }
+                        decodedText = big5.GetString(raw);
+                        File.WriteAllText(csPath, decodedText, utf8WithBom);
+                        records.Add(new RepairRecord(
+                            "規則 6 (Big5 轉 UTF-8 with BOM)",
+                            csPath,
+                            string.Format("檔案 '{0}' 原為 Big5 (CP950) 編碼，已備份並無損轉換為 UTF-8 with BOM，確保 Claude Code 與編譯器雙向相容。", Path.GetFileName(csPath)),
+                            true));
+                    }
+                }
+                catch { }
+            }
+        }
     }
 }
+
