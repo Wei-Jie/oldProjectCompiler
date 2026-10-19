@@ -244,6 +244,13 @@ namespace EEPCompiler
                         Console.WriteLine(string.Format("  [警告 - 規則 2] 仍找不到組件 '{0}.dll'，請使用 --eep-root 指定 EEP 目錄。", ri.ShortName));
                     }
                 }
+
+                List<string> notices = new List<string>();
+                BuildEngine.AddReferenceNotices(info, notices);
+                foreach (string n in notices)
+                {
+                    Console.WriteLine("  " + n);
+                }
             }
             Console.WriteLine(string.Format("修復完成，共執行 {0} 項自動調整。", totalRepairs));
             return 0;
@@ -336,6 +343,15 @@ namespace EEPCompiler
                 }
             }
 
+            if (res.Notices.Count > 0)
+            {
+                Console.WriteLine("--- 注意事項 ---");
+                foreach (string n in res.Notices)
+                {
+                    Console.WriteLine("  * " + n);
+                }
+            }
+
             int errCount = 0;
             foreach (CompilerDiagnostic d in res.Diagnostics)
             {
@@ -350,11 +366,22 @@ namespace EEPCompiler
                     if (d.Severity != "Error") continue;
                     if (d.Line > 0)
                         Console.WriteLine(string.Format("  [ERROR {0}] {1}({2},{3}): {4}", d.Code, d.FilePath, d.Line, d.Column, d.Message));
-                    else
+                    else if (!string.IsNullOrEmpty(d.FilePath))
                         Console.WriteLine(string.Format("  [ERROR {0}] {1}: {2}", d.Code, d.FilePath, d.Message));
+                    else
+                        Console.WriteLine(string.Format("  [ERROR {0}] {1}", d.Code, d.Message));
 
                     if (!string.IsNullOrEmpty(d.AiHint))
                         Console.WriteLine("    -> 修復提示: " + d.AiHint);
+                }
+            }
+            else if (!res.Success)
+            {
+                // 失敗但沒有解析出任何錯誤時，顯示原始輸出，避免錯誤原因被吞掉
+                Console.WriteLine("--- 編譯失敗，但未解析出錯誤碼；以下為最後的原始輸出 ---");
+                foreach (string line in GetLastLogLines(res, 30))
+                {
+                    Console.WriteLine("  " + line);
                 }
             }
             Console.WriteLine("============================================================");
@@ -399,6 +426,15 @@ namespace EEPCompiler
                     }
                 }
 
+                if (res.Notices.Count > 0)
+                {
+                    sb.AppendLine("\r\n### 注意事項");
+                    foreach (string n in res.Notices)
+                    {
+                        sb.AppendFormat("- {0}\r\n", n);
+                    }
+                }
+
                 if (!res.Success || res.SyntaxIssues.Count > 0)
                 {
                     if (res.SyntaxIssues.Count > 0)
@@ -427,13 +463,25 @@ namespace EEPCompiler
                             if (err.Line > 0)
                                 sb.AppendFormat("- **[`{0}`] `{1}` (第 {2} 行, 第 {3} 字元)**: {4}\r\n",
                                     err.Code, err.FilePath, err.Line, err.Column, err.Message);
-                            else
+                            else if (!string.IsNullOrEmpty(err.FilePath))
                                 sb.AppendFormat("- **[`{0}`] `{1}`**: {2}\r\n",
                                     err.Code, err.FilePath, err.Message);
+                            else
+                                sb.AppendFormat("- **[`{0}`]**: {1}\r\n", err.Code, err.Message);
 
                             if (!string.IsNullOrEmpty(err.AiHint))
                                 sb.AppendFormat("  - **AI 修復指引**: {0}\r\n", err.AiHint);
                         }
+                    }
+                    else if (!res.Success)
+                    {
+                        sb.AppendLine("\r\n### 編譯失敗，但未解析出錯誤碼（最後的原始輸出）");
+                        sb.AppendLine("```");
+                        foreach (string line in GetLastLogLines(res, 30))
+                        {
+                            sb.AppendLine(line);
+                        }
+                        sb.AppendLine("```");
                     }
                 }
                 sb.AppendLine();
@@ -443,12 +491,18 @@ namespace EEPCompiler
             {
                 sb.AppendLine("---");
                 sb.AppendLine("### 給 AI Agent (Claude Code) 的下一步行動指令：");
-                sb.AppendLine("1. 請開啟上方報錯的 `.cs` 檔案與對應行號，將現代 C# 語法（如 `$\"...\"`, `?.`, `nameof`, `using var`, `new()`, File-scoped namespace）降級為 C# 5.0 / VS2005 相容語法。");
+                sb.AppendLine("1. 先依上方「編譯器錯誤明細」或原始輸出判斷原因：參考組件或資源錯誤 (如 CS0246 找不到 Srvtools、CS1508 資源重複) 請修正參考與 `--eep-root`，不要修改 `.cs`；只有確定是語法錯誤時，才將現代 C# 語法（如 `$\"...\"`, `?.`, `nameof`, `using var`, `new()`, File-scoped namespace）降級為 C# 5.0 / VS2005 相容語法。");
                 sb.AppendLine("2. 嚴禁刪除 `.Designer.cs` 內的 `InfoDataSet`、`InfoBindingSource`、`InfoCommand`、`UpdateComponent` 宣告。");
                 sb.AppendLine("3. 修改完成後，請再次執行 `eepc.exe build <專案路徑> --auto-repair --claude` 驗證直到顯示 `PASS (0 Error(s))`。");
             }
 
             return sb.ToString();
+        }
+
+        private static List<string> GetLastLogLines(ProjectBuildResult res, int maxLines)
+        {
+            int start = Math.Max(0, res.Logs.Count - maxLines);
+            return res.Logs.GetRange(start, res.Logs.Count - start);
         }
 
         private static CompilerOptions ParseOptions(string[] args)

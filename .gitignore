@@ -15,3 +15,9 @@ samples/EEPNetClient/Solution1/
 samples/EEPNetServer/Solution1/
 
 vs2005compiler.zip
+
+# 排除公司真實舊系統原始碼與測試包 (保護商業資產)
+HPS/
+claudeCodeFix/
+compilerTest.zip.*
+*.zip.*

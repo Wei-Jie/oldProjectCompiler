@@ -34,11 +34,18 @@ description: 訊光 Infolight EEP (.NET / VS2005) 舊系統維運、問題定位
 2. **嚴守舊版 C# 5.0 / VS2005 語法限制**：
    - 禁止使用 `$"..."`（請用 `string.Format`）、禁止 `?.`、禁止 `nameof()`、禁止 `using var`、禁止 `new()`。
    - 嚴禁破壞 `.Designer.cs` 中的 `InfoDataSet`、`InfoBindingSource`、`InfoCommand`、`UpdateComponent` 宣告。
-3. **執行自動修復與編譯閉環**：
-   ```powershell
-   .\EEPCompiler_Portable\eepc.exe build "<目標專案.csproj>" --auto-repair --claude
-   ```
-   - 確保輸出為 `PASS (0 Error(s))`。
+3. **在專案副本上執行自動修復與編譯閉環**（`--auto-repair` 會改寫 `.csproj`、清空 `licenses.licx`，不可直接在原始碼上執行）：
+   - 把目標專案資料夾複製到 `.\eepc_work\<專案名稱>`；需要保留 DevExpress 授權資源時，把部署中的舊版 DLL 放到副本 `.csproj` 的 `<OutputPath>` 位置。
+   - 執行（一律指定 `--output`，避免 OutputPath 覆蓋 EEP 環境中的 DLL）：
+     ```powershell
+     .\EEPCompiler_Portable\eepc.exe build ".\eepc_work\<專案名稱>\<專案名稱>.csproj" --auto-repair --eep-root "<EEP根目錄，例如 D:\EEP2006>" --output ".\eepc_out\<專案名稱>" --claude
+     ```
+   - 確保輸出為 `PASS (0 Error(s))`。失敗時先看錯誤明細：參考組件或資源錯誤請修正參考與 `--eep-root`，確定是語法錯誤才修改 `.cs`。
+4. **回報注意事項與部署前驗證**：
+   - 逐一說明報告中的「注意事項」：`[資源略過]`（衛星組件未產生，沿用既有 `vi-VN\*.resources.dll`）、`[授權資源]`（DLL 不含 `*.licenses`，執行時可能出現試用提示）、`[規則 3 - 授權移植]`（授權資源從舊版 DLL 移植）、`[參考]`（組件來源）。
+   - 建議部署前用 `EEPCompiler_Portable\tools\DllCompare` 與舊版比對，並用 `tools\ResCheck` 做 CLR 2.0 資源載入檢查。
+   - 部署位置：Server 端（`Sxxx`）放 `EEPNetServer\<Solution>\`，替換後可能需重啟 EEPNetServer；Client 端（`Cxxx`）放伺服器的 `EEPNetClient\<Solution>\`，用戶端完全重開後才會下載新版。
+5. **回存版控前**：只回存原始碼的程式修改；`.csproj.bak`、`.licx.bak`、`eepc_work\`、`eepc_out\`、`obj\EEPCompiler\` 不可加入版控；`to-utf8` 轉過的檔案若版控為 Big5，需用 `to-big5` 轉回。
 
 ---
 

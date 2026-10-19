@@ -1,36 +1,75 @@
-ï»¿@echo off
-chcp 65001 >nul
+@echo off
+setlocal
 echo ====================================================================
-echo   è¨Šå…‰ EEP èˆ‡ DevExpress / ç¬¬ä¸‰æ–¹çµ„ä»¶ (.dll) è‡ªå‹•æ”¶é›†å™¨
-echo   è‡ªå‹•å°‡å…¬å¸é›»è…¦ä¸Šçš„ EEP DLL èˆ‡ DevExpress / FarPoint DLL æ”¶é›†è‡³æœ¬å¥—ä»¶ lib\ ç›®éŒ„
+echo   °T¥ú EEP »P DevExpress ²Õ¥ó (.dll) ¦¬¶°¾¹
+echo   ±N¥»¾÷ªº EEP »P DevExpress DLL ¦¬¶°¨ì¥»¤u¨ã¥]ªº lib\ ¥Ø¿ı
 echo ====================================================================
-set /p EEP_DIR="è«‹è¼¸å…¥æˆ–æ‹–æ›³å…¬å¸é›»è…¦çš„ EEP æ ¹ç›®éŒ„ (ç›´æ¥æŒ‰ Enter å‰‡è‡ªå‹•æƒæå¸¸è¦‹è·¯å¾‘èˆ‡ Windows GAC): "
 if not exist "%~dp0lib" mkdir "%~dp0lib"
 
-if not "%EEP_DIR%"=="" (
-    echo æ­£åœ¨å¾æŒ‡å®šçš„ EEP ç›®éŒ„æ”¶é›†çµ„ä»¶...
-    for %%F in (Srvtools.dll InfoRemoteModule.dll EFClientTools.dll EFServerTools.dll EFBase.dll FLCore.dll FLTools.dll FLRuntime.dll clitools.dll DevExpress*.dll FarPoint*.dll Infragistics*.dll) do (
-        for /r "%EEP_DIR%" %%P in (%%F) do (
-            if exist "%%P" (
-                echo [æ”¶é›†æˆåŠŸ] %%~nxP
-                copy /y "%%P" "%~dp0lib\" >nul
-            )
-        )
+echo.
+set "EEP_DIR="
+set /p EEP_DIR="1. ½Ğ¿é¤J©Î©ì¦² EEP ®Ú¥Ø¿ı (¨Ò¦p D:\EEP2006¡Fª½±µ«ö Enter ²¤¹L): "
+if defined EEP_DIR set "EEP_DIR=%EEP_DIR:"=%"
+
+set "DX_DIR="
+set /p DX_DIR="2. ½Ğ¿é¤J©Î©ì¦² DevExpress DLL ¸ê®Æ§¨ (¨Ò¦p D:\HPS\devexpressdll\Sources\DevExpress.DLL¡Fª½±µ«ö Enter ²¤¹L): "
+if defined DX_DIR set "DX_DIR=%DX_DIR:"=%"
+
+echo.
+if not defined EEP_DIR goto :skip_eep
+if exist "%EEP_DIR%\" goto :eep_ok
+echo [¿ù»~] §ä¤£¨ì EEP ®Ú¥Ø¿ı: %EEP_DIR%
+goto :skip_eep
+:eep_ok
+:: ¥u±q EEPNetServer ¦¬¶° (§ä¤£¨ì¤~¥Î EEPNetClient)¡A¤£»¼°j±½´y¾ã­Ó®Ú¥Ø¿ı¡G
+:: ®Ú¥Ø¿ı¤U±`¦³ .bak¡BÂÂª©³Æ¥÷¸ê®Æ§¨¡A»¼°j±½´y·|¦¬¶°¨ìª©¥»¤£©úªº¦P¦W DLL
+echo ±q EEP ¥Ø¿ı¦¬¶° EEP ²Õ¥ó...
+for %%F in (Srvtools.dll InfoRemoteModule.dll EFClientTools.dll EFServerTools.dll EFBase.dll FLCore.dll FLTools.dll FLRuntime.dll clitools.dll) do (
+    if exist "%EEP_DIR%\EEPNetServer\%%F" (
+        copy /y "%EEP_DIR%\EEPNetServer\%%F" "%~dp0lib\" >nul
+        echo   [¦¬¶°] %%F  ^(EEPNetServer^)
+    ) else if exist "%EEP_DIR%\EEPNetClient\%%F" (
+        copy /y "%EEP_DIR%\EEPNetClient\%%F" "%~dp0lib\" >nul
+        echo   [¦¬¶°] %%F  ^(EEPNetClient^)
     )
 )
+:: Client ºİ±M®×±`°Ñ·Ó Interop.Excel.dll
+if exist "%EEP_DIR%\EEPNetClient\Interop.Excel.dll" (
+    copy /y "%EEP_DIR%\EEPNetClient\Interop.Excel.dll" "%~dp0lib\" >nul
+    echo   [¦¬¶°] Interop.Excel.dll  ^(EEPNetClient^)
+)
+:skip_eep
 
-echo æ­£åœ¨å¾æœ¬æ©Ÿ Windows GAC (C:\Windows\assembly) æœå°‹ DevExpress / FarPoint / è¨Šå…‰çµ„ä»¶...
+if not defined DX_DIR goto :skip_dx
+if exist "%DX_DIR%\" goto :dx_ok
+echo [¿ù»~] §ä¤£¨ì DevExpress ¸ê®Æ§¨: %DX_DIR%
+goto :skip_dx
+:dx_ok
+echo ±q DevExpress ¸ê®Æ§¨¦¬¶° DevExpress*.dll...
+for %%P in ("%DX_DIR%\DevExpress*.dll") do (
+    copy /y "%%~fP" "%~dp0lib\" >nul
+    echo   [¦¬¶°] %%~nxP
+)
+:skip_dx
+
+:: Windows GAC ¥u¸É¦¬«e­±¨S¦¬¶°¨ìªº DevExpress / FarPoint ²Õ¥ó¡A¤£ÂĞ»\¤w¦¬¶°ªºÀÉ®×
+echo ±q Windows GAC ¸É¦¬ DevExpress / FarPoint ²Õ¥ó (­Y¦³¦w¸Ë)...
 for %%G in ("C:\Windows\assembly\GAC_MSIL" "C:\Windows\assembly\GAC_32" "C:\Windows\Microsoft.NET\assembly\GAC_MSIL") do (
-    if exist %%G (
-        for /r %%G %%P in (DevExpress*.dll FarPoint*.dll Srvtools.dll InfoRemoteModule.dll) do (
-            if exist "%%P" (
-                echo [GAC æ”¶é›†æˆåŠŸ] %%~nxP
+    if exist "%%~G\" (
+        for /r "%%~G" %%P in (DevExpress*.dll FarPoint*.dll) do (
+            if not exist "%~dp0lib\%%~nxP" (
                 copy /y "%%P" "%~dp0lib\" >nul
+                echo   [GAC ¦¬¶°] %%~nxP
             )
         )
     )
 )
 
 echo.
-echo æ”¶é›†å®Œæˆï¼æ‰€æœ‰çµ„ä»¶å·²å­˜å…¥ %~dp0lib\ è³‡æ–™å¤¾ï¼
+echo ====================================================================
+echo ¦¬¶°§¹¦¨¡Alib\ ¥Ø«eªº²Õ¥ó»Pª©¥»:
+powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%~dp0lib' -Filter *.dll | ForEach-Object { try { $v=[Reflection.AssemblyName]::GetAssemblyName($_.FullName).Version } catch { $v='?' }; '  {0,-45} {1,-12} {2,10:N0} bytes' -f $_.Name, $v, $_.Length }"
+echo ====================================================================
+echo ½Ğ½T»{ Srvtools.dll / InfoRemoteModule.dll ¬° 2.2.0.0 ¥B¤j¤p¤£¬O´X KB
+echo (ÂÂª©¤u¨ã¥]¤ºªşªº mock ¥u¦³ 3~7 KB¡A¤£¯à¥Î¨Ó½sÄ¶­n³¡¸pªº DLL)¡C
 pause

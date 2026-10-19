@@ -24,8 +24,9 @@ namespace EEPCompiler
             @"^(?<file>[^(]+)\((?<line>\d+),(?<col>\d+)\):\s*(?<sev>error|warning)\s+(?<code>[A-Za-z]+\d+):\s*(?<msg>.+)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // 3. error CS1508: 訊息 (csc 對整個組件的錯誤沒有檔名與行號，origin 為選填)
         private static readonly Regex GeneralDiagRegex = new Regex(
-            @"^(?<origin>[^:]+):\s*(?<sev>error|warning)\s+(?<code>[A-Za-z]+\d+):\s*(?<msg>.+)$",
+            @"^(?:(?<origin>[^:]+):\s*)?(?<sev>error|warning)\s+(?<code>[A-Za-z]+\d+):\s*(?<msg>.+)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public BuildEngine()
@@ -71,6 +72,8 @@ namespace EEPCompiler
                         result.Project = project;
                     }
                 }
+
+                AddReferenceNotices(project, result.Notices);
 
                 // 判斷本機是否僅有舊版 C# 5.0 / 2.0 編譯器
                 List<string> msbuilds = ReferenceResolver.FindAvailableMSBuilds();
@@ -156,15 +159,42 @@ namespace EEPCompiler
             return result;
         }
 
+        /// <summary>
+        /// 列出需要使用者注意的參考解析結果：取自工具包目錄 (可能是 mock) 與改用 DLL 的 ProjectReference
+        /// </summary>
+        public static void AddReferenceNotices(EepProjectInfo project, List<string> notices)
+        {
+            List<string> fromToolDir = new List<string>();
+            foreach (ReferenceItem r in project.References)
+            {
+                if (!string.IsNullOrEmpty(r.MissingProjectReference))
+                {
+                    notices.Add(r.IsResolved
+                        ? string.Format("[參考] ProjectReference '{0}' 不存在，改用 DLL: {1}", r.MissingProjectReference, r.ResolvedPath)
+                        : string.Format("[參考] ProjectReference '{0}' 不存在，且找不到 {1}.dll，請用 --eep-root 指定 EEP 目錄。", r.MissingProjectReference, r.ShortName));
+                }
+                if (r.IsResolved && r.IsFromToolDirectory && !r.IsSystemAssembly)
+                {
+                    fromToolDir.Add(Path.GetFileName(r.ResolvedPath));
+                }
+            }
+            if (fromToolDir.Count > 0)
+            {
+                notices.Add(string.Format("[參考] 以下組件取自工具包 lib\\：{0}。請確認是用 01_收集公司EEP與DevExpress組件.bat 收集的真實組件；舊版工具包內附的是測試用 mock，用它編出的 DLL 不能部署。",
+                    string.Join("、", fromToolDir.ToArray())));
+            }
+        }
+
         private TargetClrVersion DetermineTargetClr(EepProjectInfo project, CompilerOptions options)
         {
             if (options.TargetClr != TargetClrVersion.Auto)
                 return options.TargetClr;
 
             // 檢查專案所引用的 Srvtools.dll / InfoRemoteModule.dll 的實際 CLR 版本
+            // (略過取自工具包目錄的組件：內附 mock 為 v4.0，會誤判 VS2005 專案的目標版本)
             foreach (ReferenceItem r in project.References)
             {
-                if (r.IsEepAssembly && r.IsResolved && File.Exists(r.ResolvedPath))
+                if (r.IsEepAssembly && r.IsResolved && !r.IsFromToolDirectory && File.Exists(r.ResolvedPath))
                 {
                     string ver = ReferenceResolver.DetectAssemblyClrVersion(r.ResolvedPath);
                     if (ver.StartsWith("v2.0")) return TargetClrVersion.Net20;
@@ -320,7 +350,8 @@ namespace EEPCompiler
 
             // 2. 使用內建免 SDK 的 ResxCompiler 將所有 .resx 編譯為 .resources
             string objDir = Path.Combine(project.ProjectDirectory, @"obj\EEPCompiler");
-            List<string> resourceArgs = _resxCompiler.CompileProjectResources(project, objDir, result.Logs);
+            List<string> resourceArgs = _resxCompiler.CompileProjectResources(project, objDir, result.Logs, result.Notices,
+                targetClr == TargetClrVersion.Net20);
 
             // 3. 決定輸出目錄與檔案路徑
             string outDir = !string.IsNullOrEmpty(options.CustomOutputPath)
@@ -401,7 +432,8 @@ namespace EEPCompiler
             {
                 if (addedRefs.Contains(r.ShortName)) continue;
 
-                if (r.IsSystemAssembly && useNoStdLibForNet20)
+                // 系統組件一律對應目標 CLR 的 Framework 目錄，避免 v2.0 / v4.0 組件混用
+                if (r.IsSystemAssembly)
                 {
                     string sys20 = Path.Combine(fwDir, r.ShortName + ".dll");
                     if (File.Exists(sys20))
@@ -462,7 +494,8 @@ namespace EEPCompiler
             File.WriteAllText(rspPath, rsp.ToString(), Encoding.UTF8);
 
             int exitCode;
-            string cscOutput = RunProcessCaptureOutput(cscExe, string.Format("@\"{0}\"", rspPath), project.ProjectDirectory, out exitCode);
+            // /utf8output 同時放在命令列：RunProcessCaptureOutput 依命令列判斷要用 UTF-8 讀取輸出，只放在 .rsp 內會被當成 CP950 而變亂碼
+            string cscOutput = RunProcessCaptureOutput(cscExe, string.Format("/utf8output @\"{0}\"", rspPath), project.ProjectDirectory, out exitCode);
 
             ParseCompilerOutput(cscOutput, project.ProjectDirectory, result);
 

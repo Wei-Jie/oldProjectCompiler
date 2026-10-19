@@ -3,8 +3,10 @@
 """
 Infolight EEP (.NET Framework / VS2005) 專案編譯、自動修復與即時監控工具 (Python 版)
 支援：
-1. 自動呼叫同目錄下的 eepc.exe 或使用純 Python 實作規則 1 ~ 規則 5 的診斷與修復
+1. 呼叫同目錄下的 eepc.exe 執行 build / repair / check / env（實際的修復與編譯都由 eepc.exe 執行）
 2. 支援 `watch` 檔案變更監控模式：當 Claude Code 修改並儲存 .cs 時，自動觸發編譯並更新診斷報告
+3. build / watch 一律指定輸出資料夾（--output，預設為專案資料夾下的 eepc_out），
+   避免 .csproj 的 OutputPath 覆蓋 EEPNetServer / EEPNetClient 中正在使用的 DLL
 """
 
 import argparse
@@ -93,21 +95,24 @@ def collect_cs_mtime(target_path: Path) -> Dict[str, float]:
     return mtimes
 
 
-def watch_project(target_path: Path, eep_root: Optional[str], report_file: Optional[Path]) -> int:
+def watch_project(target_path: Path, eep_root: Optional[str], report_file: Optional[Path], output_dir: Path) -> int:
     """監控專案檔案變更，當 Claude Code 或開發者儲存 .cs 檔時自動執行修復與編譯"""
     eepc = find_eepc_exe()
     if not eepc:
-        print("[錯誤] 找不到 eepc.exe，請先確認 dist/EEPCompiler_Portable/eepc.exe 存在。")
+        print("[錯誤] 找不到 eepc.exe，請確認 eepc.exe 與 eep_tool.py 位於同一個資料夾。")
         return 2
 
     print("=" * 68)
     print(f"[EEP 自動監控編譯模式] 正在監控: {target_path}")
+    print(f"編譯輸出資料夾: {output_dir}")
     print("當 Claude Code 或您修改並儲存任何 .cs / .csproj 時，將自動觸發修復與編譯。")
+    print("[注意] 自動修復會改寫被監控資料夾中的 .csproj 並清空 licenses.licx（皆有 .bak 備份），")
+    print("       請監控專案副本，或在回存版控前以 .bak 還原。")
     print("按 Ctrl+C 可結束監控。")
     print("=" * 68)
 
     last_state = collect_cs_mtime(target_path)
-    trigger_build(eepc, target_path, eep_root, report_file)
+    trigger_build(eepc, target_path, eep_root, report_file, output_dir)
 
     try:
         while True:
@@ -121,7 +126,7 @@ def watch_project(target_path: Path, eep_root: Optional[str], report_file: Optio
                 ]
                 print(f"\n[偵測到檔案變更] {', '.join(changed_files[:5])} -> 重新執行自動修復與編譯...")
                 last_state = current_state
-                trigger_build(eepc, target_path, eep_root, report_file)
+                trigger_build(eepc, target_path, eep_root, report_file, output_dir)
                 # 因為自動修復可能更新了 .csproj，重新取樣時間戳記避免無限迴圈
                 last_state = collect_cs_mtime(target_path)
     except KeyboardInterrupt:
@@ -129,9 +134,9 @@ def watch_project(target_path: Path, eep_root: Optional[str], report_file: Optio
         return 0
 
 
-def trigger_build(eepc: Path, target_path: Path, eep_root: Optional[str], report_file: Optional[Path]) -> int:
+def trigger_build(eepc: Path, target_path: Path, eep_root: Optional[str], report_file: Optional[Path], output_dir: Path) -> int:
     """執行單次 build 並可選將 Claude 報告寫入檔案"""
-    args = [str(eepc), "build", str(target_path), "--auto-repair", "--claude"]
+    args = [str(eepc), "build", str(target_path), "--auto-repair", "--claude", "--output", str(output_dir)]
     if eep_root:
         args.extend(["--eep-root", eep_root])
 
@@ -175,6 +180,11 @@ def main() -> int:
         default="",
         help="在 watch 或 build 模式下，將 Claude 診斷報告同步寫入指定 Markdown 檔案",
     )
+    parser.add_argument(
+        "--output",
+        default="",
+        help="build / watch 的編譯輸出資料夾（預設為專案資料夾下的 eepc_out，避免 OutputPath 覆蓋 EEP 環境中的 DLL）",
+    )
 
     args = parser.parse_args()
     eepc = find_eepc_exe()
@@ -198,12 +208,18 @@ def main() -> int:
         return 2
 
     target = Path(args.path).resolve()
+    project_dir = target.parent if target.is_file() else target
+    output_dir = Path(args.output).resolve() if args.output else project_dir / "eepc_out"
+
     if args.command == "watch":
-        rep = Path(args.report_file).resolve() if args.report_file else (target.parent if target.is_file() else target) / "EEP_BUILD_STATUS.md"
-        return watch_project(target, args.eep_root or None, rep)
+        rep = Path(args.report_file).resolve() if args.report_file else project_dir / "EEP_BUILD_STATUS.md"
+        return watch_project(target, args.eep_root or None, rep, output_dir)
 
     if eepc:
         forward_args = [args.command, str(target)]
+        if args.command == "build":
+            forward_args.extend(["--output", str(output_dir)])
+            print(f"[編譯輸出資料夾] {output_dir}")
         if args.eep_root:
             forward_args.extend(["--eep-root", args.eep_root])
         if args.engine != "auto":

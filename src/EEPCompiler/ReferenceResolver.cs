@@ -201,19 +201,10 @@ namespace EEPCompiler
             _dllCache.Clear();
             List<string> candidateDirs = new List<string>();
 
-            // 0. 優先搜尋可攜式編譯器 (eepc.exe) 自身所在目錄與其下的 lib / EEPNetServer / EEPNetClient 資料夾
-            string toolBaseDir = AppDomain.CurrentDomain.BaseDirectory;
-            if (!string.IsNullOrEmpty(toolBaseDir) && Directory.Exists(toolBaseDir))
-            {
-                candidateDirs.Add(toolBaseDir);
-                AddCommonEepSubfolders(toolBaseDir, candidateDirs);
-            }
-
-            // 1. 使用者指定的 EEP 根目錄與額外搜尋路徑
+            // 1. 優先搜尋使用者指定的 EEP 根目錄與額外搜尋路徑 (先找到者優先，--eep-root 必須勝過工具包內附 DLL)
             if (!string.IsNullOrEmpty(options.EepRootPath) && Directory.Exists(options.EepRootPath))
             {
-                candidateDirs.Add(options.EepRootPath);
-                AddCommonEepSubfolders(options.EepRootPath, candidateDirs);
+                AddRootWithSubfolders(options.EepRootPath, candidateDirs);
             }
 
             if (options.ExtraSearchPaths != null)
@@ -231,8 +222,7 @@ namespace EEPCompiler
                 string current = Path.GetFullPath(projectDir);
                 for (int i = 0; i < 5 && !string.IsNullOrEmpty(current); i++)
                 {
-                    candidateDirs.Add(current);
-                    AddCommonEepSubfolders(current, candidateDirs);
+                    AddRootWithSubfolders(current, candidateDirs);
                     DirectoryInfo parent = Directory.GetParent(current);
                     current = parent != null ? parent.FullName : null;
                 }
@@ -261,9 +251,16 @@ namespace EEPCompiler
             {
                 if (Directory.Exists(installRoot))
                 {
-                    candidateDirs.Add(installRoot);
-                    AddCommonEepSubfolders(installRoot, candidateDirs);
+                    AddRootWithSubfolders(installRoot, candidateDirs);
                 }
+            }
+
+            // 4. 最後才搜尋可攜式編譯器 (eepc.exe) 自身所在目錄與其下的 lib / EEPNetServer / EEPNetClient 資料夾
+            //    (工具包內附的 Srvtools.dll / InfoRemoteModule.dll 可能是 mock，只能當最後備援)
+            string toolBaseDir = AppDomain.CurrentDomain.BaseDirectory;
+            if (!string.IsNullOrEmpty(toolBaseDir) && Directory.Exists(toolBaseDir))
+            {
+                AddRootWithSubfolders(toolBaseDir, candidateDirs);
             }
 
             // 掃描所有候選目錄下的 .dll 與 .exe (如 EEPNetClient.exe / EEPNetServer.exe 有時也會被參考)
@@ -277,6 +274,16 @@ namespace EEPCompiler
 
                 IndexDirectoryFiles(fullDir, 2);
             }
+        }
+
+        /// <summary>
+        /// 先加入 EEPNetServer / EEPNetClient / Lib 等子資料夾，再加入根目錄本身：
+        /// 根目錄會往下遞迴掃描 2 層，若先掃根目錄，會先取到備份或其他工具資料夾內的同名 DLL (如 EEPManager\System.dll、EEPNetClient 舊版 Srvtools.dll)
+        /// </summary>
+        private void AddRootWithSubfolders(string rootDir, List<string> list)
+        {
+            AddCommonEepSubfolders(rootDir, list);
+            list.Add(rootDir);
         }
 
         private void AddCommonEepSubfolders(string rootDir, List<string> list)
@@ -358,8 +365,15 @@ namespace EEPCompiler
             string fw20Dir = @"C:\Windows\Microsoft.NET\Framework\v2.0.50727";
             string fw40Dir = @"C:\Windows\Microsoft.NET\Framework\v4.0.30319";
 
+            // 系統組件預設對應的 Framework：明確指定 v4.0 或專案為 v4.x 才用 v4.0，否則 VS2005 專案用 v2.0
+            bool preferNet20 = options.TargetClr == TargetClrVersion.Net20 ||
+                               (options.TargetClr == TargetClrVersion.Auto &&
+                                !project.TargetFrameworkVersion.StartsWith("v4", StringComparison.OrdinalIgnoreCase));
+
             foreach (ReferenceItem item in project.References)
             {
+                item.IsFromToolDirectory = false;
+
                 // 1. 先檢查原本的 HintPath 是否存在
                 if (!string.IsNullOrEmpty(item.OriginalHintPath))
                 {
@@ -372,26 +386,19 @@ namespace EEPCompiler
                     {
                         item.ResolvedPath = candidate;
                         item.IsResolved = true;
+                        item.IsFromToolDirectory = IsInToolDirectory(candidate);
                         continue;
                     }
                 }
 
-                // 2. 檢查是否為搜尋索引中的組件 (包含 EEP 專屬 DLL 與第三方 DLL)
-                string cachedPath;
-                if (_dllCache.TryGetValue(item.ShortName, out cachedPath) && File.Exists(cachedPath))
-                {
-                    item.ResolvedPath = cachedPath;
-                    item.IsResolved = true;
-                    continue;
-                }
-
-                // 3. 檢查是否為系統組件 (.NET Framework)
+                // 2. 系統組件 (.NET Framework) 一律從 Framework 目錄解析，不從 EEP 目錄搜尋
+                //    (避免取到 EEP 安裝目錄內隨附的 System.dll 等複本)
                 if (item.IsSystemAssembly)
                 {
                     string sysCandidate20 = Path.Combine(fw20Dir, item.ShortName + ".dll");
                     string sysCandidate40 = Path.Combine(fw40Dir, item.ShortName + ".dll");
 
-                    if (options.TargetClr == TargetClrVersion.Net20 && File.Exists(sysCandidate20))
+                    if (preferNet20 && File.Exists(sysCandidate20))
                     {
                         item.ResolvedPath = sysCandidate20;
                         item.IsResolved = true;
@@ -411,6 +418,16 @@ namespace EEPCompiler
                     }
                 }
 
+                // 3. 檢查是否為搜尋索引中的組件 (包含 EEP 專屬 DLL 與第三方 DLL)
+                string cachedPath;
+                if (_dllCache.TryGetValue(item.ShortName, out cachedPath) && File.Exists(cachedPath))
+                {
+                    item.ResolvedPath = cachedPath;
+                    item.IsResolved = true;
+                    item.IsFromToolDirectory = IsInToolDirectory(cachedPath);
+                    continue;
+                }
+
                 // 4. 檢查 GAC (C:\Windows\assembly\GAC_MSIL 等)
                 string gacPath = SearchInGac(item.ShortName);
                 if (!string.IsNullOrEmpty(gacPath))
@@ -421,6 +438,23 @@ namespace EEPCompiler
                 }
 
                 item.IsResolved = false;
+            }
+        }
+
+        /// <summary>
+        /// 判斷檔案是否位於 eepc.exe 自身目錄之下 (工具包內附的 DLL 可能是 mock)
+        /// </summary>
+        public static bool IsInToolDirectory(string filePath)
+        {
+            try
+            {
+                string toolDir = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                return Path.GetFullPath(filePath).StartsWith(toolDir, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
             }
         }
 

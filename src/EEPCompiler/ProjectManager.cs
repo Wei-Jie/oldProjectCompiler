@@ -224,6 +224,39 @@ namespace EEPCompiler
                 }
             }
 
+            // 讀取 ProjectReference：本工具不連帶建置參考專案；若參考的 .csproj 不存在 (例如 ..\..\Srvtools\Srvtools.csproj)，
+            // 改以同名 DLL 參考 (Srvtools.dll) 解析，避免參考整個遺失而報 CS0246
+            XmlNodeList projRefNodes = doc.SelectNodes("//" + prefix + "ProjectReference", nsmgr);
+            if (projRefNodes != null)
+            {
+                foreach (XmlNode prNode in projRefNodes)
+                {
+                    if (prNode.Attributes == null || prNode.Attributes["Include"] == null) continue;
+                    string prInclude = prNode.Attributes["Include"].Value.Trim();
+                    string prFull = Path.GetFullPath(Path.Combine(info.ProjectDirectory, prInclude));
+                    if (File.Exists(prFull)) continue;
+
+                    string asmName = GetProjectReferenceAssemblyName(prNode, prefix, nsmgr, prInclude);
+                    bool alreadyReferenced = false;
+                    foreach (ReferenceItem existing in info.References)
+                    {
+                        if (string.Equals(existing.ShortName, asmName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            alreadyReferenced = true;
+                            break;
+                        }
+                    }
+                    if (alreadyReferenced) continue;
+
+                    ReferenceItem prItem = new ReferenceItem();
+                    prItem.Include = asmName;
+                    prItem.ShortName = asmName;
+                    prItem.IsEepAssembly = ReferenceResolver.IsEepAssemblyName(asmName);
+                    prItem.MissingProjectReference = prInclude;
+                    info.References.Add(prItem);
+                }
+            }
+
             // 讀取 Compile (.cs)
             XmlNodeList compileNodes = doc.SelectNodes("//" + prefix + "Compile", nsmgr);
             if (compileNodes != null)
@@ -285,6 +318,17 @@ namespace EEPCompiler
             DetectEepRole(info);
 
             return info;
+        }
+
+        /// <summary>
+        /// 取得 ProjectReference 對應的組件名稱：優先使用 &lt;Name&gt;，否則使用 .csproj 檔名
+        /// </summary>
+        private static string GetProjectReferenceAssemblyName(XmlNode prNode, string prefix, XmlNamespaceManager nsmgr, string prInclude)
+        {
+            XmlNode nameNode = prNode.SelectSingleNode(prefix + "Name", nsmgr);
+            if (nameNode != null && !string.IsNullOrEmpty(nameNode.InnerText.Trim()))
+                return nameNode.InnerText.Trim();
+            return Path.GetFileNameWithoutExtension(prInclude);
         }
 
         /// <summary>
@@ -599,6 +643,59 @@ namespace EEPCompiler
                                 true));
                         }
                     }
+                }
+            }
+
+            // === 規則 2 補充：指向不存在專案的 ProjectReference 改為 DLL 參考 (讓 MSBuild 與本工具都能解析) ===
+            XmlNodeList projRefNodes = doc.SelectNodes("//" + prefix + "ProjectReference", nsmgr);
+            if (projRefNodes != null)
+            {
+                List<XmlNode> projRefList = new List<XmlNode>();
+                foreach (XmlNode n in projRefNodes) projRefList.Add(n);
+
+                foreach (XmlNode prNode in projRefList)
+                {
+                    if (prNode.Attributes == null || prNode.Attributes["Include"] == null) continue;
+                    string prInclude = prNode.Attributes["Include"].Value.Trim();
+
+                    ReferenceItem matchedRef = null;
+                    foreach (ReferenceItem ri in project.References)
+                    {
+                        if (string.Equals(ri.MissingProjectReference, prInclude, StringComparison.OrdinalIgnoreCase))
+                        {
+                            matchedRef = ri;
+                            break;
+                        }
+                    }
+                    if (matchedRef == null || !matchedRef.IsResolved || string.IsNullOrEmpty(matchedRef.ResolvedPath)) continue;
+
+                    string newRelPath = ReferenceResolver.GetRelativePath(project.ProjectDirectory, matchedRef.ResolvedPath);
+                    XmlElement refElem = doc.CreateElement("Reference", defaultNs);
+                    refElem.SetAttribute("Include", matchedRef.ShortName);
+
+                    XmlElement svElem = doc.CreateElement("SpecificVersion", defaultNs);
+                    svElem.InnerText = "False";
+                    refElem.AppendChild(svElem);
+
+                    XmlElement hpElem = doc.CreateElement("HintPath", defaultNs);
+                    hpElem.InnerText = newRelPath;
+                    refElem.AppendChild(hpElem);
+
+                    XmlNode privateNode = prNode.SelectSingleNode(prefix + "Private", nsmgr);
+                    if (privateNode != null)
+                    {
+                        XmlElement pvElem = doc.CreateElement("Private", defaultNs);
+                        pvElem.InnerText = privateNode.InnerText.Trim();
+                        refElem.AppendChild(pvElem);
+                    }
+
+                    prNode.ParentNode.ReplaceChild(refElem, prNode);
+                    csprojModified = true;
+                    records.Add(new RepairRecord(
+                        "規則 2 (ProjectReference 改為 DLL 參考)",
+                        project.ProjectFilePath,
+                        string.Format("參考專案 '{0}' 不存在，已改為 DLL 參考 [{1}] -> '{2}'。", prInclude, matchedRef.ShortName, newRelPath),
+                        true));
                 }
             }
 

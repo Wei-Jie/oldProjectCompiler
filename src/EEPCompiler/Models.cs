@@ -80,6 +80,14 @@ namespace EEPCompiler
         public bool IsSystemAssembly { get; set; }
         public bool IsEepAssembly { get; set; }
         public bool IsResolved { get; set; }
+        /// <summary>
+        /// 解析結果取自 eepc.exe 自身目錄 (工具包 lib\ 內附的可能是 mock 組件)
+        /// </summary>
+        public bool IsFromToolDirectory { get; set; }
+        /// <summary>
+        /// 由「指向不存在專案的 ProjectReference」轉成的 DLL 參考，值為原 ProjectReference 的 Include
+        /// </summary>
+        public string MissingProjectReference { get; set; }
 
         public ReferenceItem()
         {
@@ -91,6 +99,8 @@ namespace EEPCompiler
             IsSystemAssembly = false;
             IsEepAssembly = false;
             IsResolved = false;
+            IsFromToolDirectory = false;
+            MissingProjectReference = "";
         }
     }
 
@@ -242,6 +252,10 @@ namespace EEPCompiler
         public List<SyntaxIssue> SyntaxIssues { get; set; }
         public List<CompilerDiagnostic> Diagnostics { get; set; }
         public List<string> Logs { get; set; }
+        /// <summary>
+        /// 需要使用者注意、但不構成編譯錯誤的事項 (會顯示在主控台與 --claude 報告)
+        /// </summary>
+        public List<string> Notices { get; set; }
         public double DurationSeconds { get; set; }
 
         public ProjectBuildResult()
@@ -254,6 +268,7 @@ namespace EEPCompiler
             SyntaxIssues = new List<SyntaxIssue>();
             Diagnostics = new List<CompilerDiagnostic>();
             Logs = new List<string>();
+            Notices = new List<string>();
             DurationSeconds = 0;
         }
     }
